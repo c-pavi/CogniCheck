@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { api } from './api';
+import { Admin } from './screens/Admin';
 import { CONSENT_VERSION } from './config';
 import { Consent } from './screens/Consent';
 import { CookieTheft } from './screens/CookieTheft';
@@ -13,6 +14,17 @@ import { WordRecall } from './screens/WordRecall';
 import type { Demographics, Screen, TestType } from './types';
 
 export default function App() {
+  if (window.location.pathname.replace(/\/$/, '') === '/admin') {
+    return (
+      <div className="min-h-screen bg-stone-50 text-stone-900 antialiased">
+        <Admin />
+      </div>
+    );
+  }
+  return <ParticipantFlow />;
+}
+
+function ParticipantFlow() {
   const [screen, setScreen] = useState<Screen>('landing');
   const [studyCode, setStudyCode] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);

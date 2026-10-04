@@ -1,4 +1,4 @@
-import type { Demographics, RecordingMetadata } from './types';
+import type { Demographics, RecordingMetadata, TestType } from './types';
 
 // In dev, VITE_API_URL is empty and Vite proxies /api to the backend.
 // In production, set VITE_API_URL to the deployed backend base
@@ -26,6 +26,47 @@ export interface RecordingUploadResponse {
   recording_id: string;
   upload_status: string;
 }
+
+export interface AdminOverview {
+  study_codes: number;
+  active_codes: number;
+  sessions: number;
+  completed_sessions: number;
+  recordings: number;
+  recordings_by_test: Partial<Record<TestType, number>>;
+  audio_seconds: number;
+  age_band: Record<string, number>;
+  sex: Record<string, number>;
+  primary_language: Record<string, number>;
+}
+
+export interface AdminRecording {
+  id: string;
+  test_type: TestType;
+  test_config: Record<string, unknown>;
+  started_at: string;
+  duration_sec: number;
+  file_size_bytes: number | null;
+  mic_device_label: string | null;
+  audio_available: boolean;
+  transcript: string | null;
+}
+
+export interface AdminSession {
+  id: string;
+  study_code: string;
+  started_at: string;
+  completed_at: string | null;
+  consent_version: string;
+  age_band: string | null;
+  sex: string | null;
+  education_years: number | null;
+  primary_language: string | null;
+  recordings: AdminRecording[];
+}
+
+export const adminAudioUrl = (recordingId: string) =>
+  `${API_BASE}/admin/recordings/${recordingId}/audio`;
 
 export const api = {
   async checkCode(studyCode: string): Promise<StudyCodeCheckResponse> {
@@ -72,5 +113,13 @@ export const api = {
       method: 'POST',
     });
     return parseJson<{ completed: boolean }>(res);
+  },
+
+  async adminOverview(): Promise<AdminOverview> {
+    return parseJson<AdminOverview>(await fetch(`${API_BASE}/admin/overview`));
+  },
+
+  async adminSessions(): Promise<AdminSession[]> {
+    return parseJson<AdminSession[]>(await fetch(`${API_BASE}/admin/sessions`));
   },
 };

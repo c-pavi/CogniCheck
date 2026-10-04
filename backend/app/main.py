@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models  # noqa: F401  # ensure models register with Base metadata
 from .config import settings
 from .database import Base, engine
-from .routes import participants, recordings, sessions
+from .routes import admin, participants, recordings, sessions
 
 # Ensure audio storage directory exists.
 Path(settings.audio_storage_path).mkdir(parents=True, exist_ok=True)
@@ -32,6 +32,10 @@ app.add_middleware(
 app.include_router(participants.router)
 app.include_router(sessions.router)
 app.include_router(recordings.router)
+
+# Researcher dashboard API: unauthenticated, so off unless explicitly enabled.
+if settings.admin_enabled:
+    app.include_router(admin.router)
 
 
 @app.get("/api/health")

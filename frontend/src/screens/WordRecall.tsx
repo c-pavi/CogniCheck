@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { PrimaryButton } from '../components/Button';
+import { PrimaryButton, SecondaryButton } from '../components/Button';
 import { Layout, PromptCard } from '../components/Layout';
 import { RecordingPanel } from '../components/RecordingPanel';
 import {
@@ -34,12 +34,30 @@ export function WordRecall({ sessionId, onDone, onBack }: WordRecallProps) {
     return () => clearTimeout(t);
   }, [phase, wordIndex]);
 
+  const nextWord = () => setWordIndex((i) => Math.min(i + 1, WORD_LIST.length));
+
+  // Space skips to the next word. Ignore it on buttons (they handle Space as a
+  // click already) and on key repeat so holding it down doesn't race ahead.
+  useEffect(() => {
+    if (phase !== 'learning') return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      if (e.target instanceof HTMLButtonElement) return;
+      e.preventDefault();
+      nextWord();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [phase]);
+
   if (phase === 'learning') {
     return (
       <LearningPhase
         word={WORD_LIST[wordIndex]}
         index={wordIndex}
         total={WORD_LIST.length}
+        onNext={nextWord}
       />
     );
   }
@@ -100,9 +118,10 @@ interface LearningPhaseProps {
   word: string;
   index: number;
   total: number;
+  onNext: () => void;
 }
 
-function LearningPhase({ word, index, total }: LearningPhaseProps) {
+function LearningPhase({ word, index, total, onNext }: LearningPhaseProps) {
   const progress = (index / total) * 100;
   const showWord = index < total;
 
@@ -127,6 +146,10 @@ function LearningPhase({ word, index, total }: LearningPhaseProps) {
               className="text-6xl sm:text-7xl md:text-8xl font-serif text-stone-900 animate-fadein"
             >
               {word}
+            </div>
+            <div className="mt-12 flex flex-col items-center gap-3">
+              <SecondaryButton onClick={onNext}>Next word</SecondaryButton>
+              <div className="text-xs text-stone-500">or press Space</div>
             </div>
           </div>
         ) : (
