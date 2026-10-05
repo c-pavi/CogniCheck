@@ -1,21 +1,36 @@
 """Read-only researcher endpoints for browsing collected data.
 
-These expose participant data with no authentication, so main.py only mounts
-this router when ADMIN_ENABLED=true. Leave it off on any public deployment.
+Every request must send the dashboard password as `Authorization: Bearer
+<ADMIN_TOKEN>`. main.py only mounts this router when ADMIN_TOKEN is set.
 """
+import secrets
 import uuid
 from collections import Counter
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session as DBSession, joinedload
 
 from .. import models
 from ..config import settings
 from ..database import get_db
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+def require_admin(authorization: str = Header(default="")) -> None:
+    scheme, _, token = authorization.partition(" ")
+    expected = settings.admin_token
+    if not (
+        expected
+        and scheme.lower() == "bearer"
+        and secrets.compare_digest(token.encode(), expected.encode())
+    ):
+        raise HTTPException(status_code=401, detail="Wrong or missing dashboard password")
+
+
+router = APIRouter(
+    prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)]
+)
 
 
 def _storage_root() -> Path:
@@ -74,6 +89,12 @@ def list_sessions(db: DBSession = Depends(get_db)):
         .order_by(models.Session.started_at.desc())
         .all()
     )
+    in_db = {
+        rid
+        for (rid,) in db.query(models.Recording.id).filter(
+            models.Recording.audio_data.isnot(None)
+        )
+    }
     out = []
     for s in sessions:
         recs = []
@@ -88,7 +109,7 @@ def list_sessions(db: DBSession = Depends(get_db)):
                     "duration_sec": r.duration_sec,
                     "file_size_bytes": r.file_size_bytes,
                     "mic_device_label": r.mic_device_label,
-                    "audio_available": audio is not None,
+                    "audio_available": r.id in in_db or audio is not None,
                     "transcript": _transcript(audio),
                 }
             )
@@ -112,7 +133,12 @@ def list_sessions(db: DBSession = Depends(get_db)):
 @router.get("/recordings/{recording_id}/audio")
 def recording_audio(recording_id: uuid.UUID, db: DBSession = Depends(get_db)):
     recording = db.get(models.Recording, recording_id)
-    audio = _audio_path(recording) if recording else None
+    if recording is None:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    media_type = recording.mime_type or "audio/webm"
+    if recording.audio_data is not None:
+        return Response(content=recording.audio_data, media_type=media_type)
+    audio = _audio_path(recording)
     if audio is None:
         raise HTTPException(status_code=404, detail="Audio not found")
-    return FileResponse(audio, media_type=recording.mime_type or "audio/webm")
+    return FileResponse(audio, media_type=media_type)

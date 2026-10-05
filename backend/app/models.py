@@ -14,10 +14,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 
 from .database import Base
@@ -116,6 +117,10 @@ class Recording(Base):
     mime_type = Column(Text)
     sample_rate_hz = Column(Integer)
     mic_device_label = Column(Text)
+
+    # The audio itself, kept in Postgres so it survives hosts with ephemeral
+    # disks (e.g. Render free tier). Deferred so listing rows doesn't load it.
+    audio_data = deferred(Column(LargeBinary))
 
     # Upload state
     upload_status = Column(Text, default="pending", nullable=False)

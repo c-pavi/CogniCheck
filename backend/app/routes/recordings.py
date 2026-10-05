@@ -58,7 +58,8 @@ async def upload_recording(
             detail=f"Missing required metadata fields: {sorted(missing)}",
         )
 
-    # Persist file to disk. Path structure is self-documenting so the
+    # Persist file to disk (used by scripts/transcribe.py) and to the database
+    # (the durable copy; some hosts wipe their disk on restart). Path structure is self-documenting so the
     # filesystem can be inspected without touching the database:
     #   <AUDIO_STORAGE>/<study_code>/<session_id>/<test_type>_<recording_id>.webm
     recording_id = uuid.uuid4()
@@ -85,6 +86,7 @@ async def upload_recording(
         mime_type=meta.get("mime_type"),
         sample_rate_hz=meta.get("sample_rate_hz"),
         mic_device_label=meta.get("mic_device_label"),
+        audio_data=contents,
         upload_status="complete",
         upload_completed_at=datetime.now(timezone.utc),
     )

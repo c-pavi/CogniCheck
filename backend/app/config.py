@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     audio_storage_path: str = "./audio_storage"
     cors_origins: str = "http://localhost:5173"
     consent_version: str = "demo-v1"
-    admin_enabled: bool = False
+    # Password for the /admin researcher dashboard. Empty = dashboard API off.
+    admin_token: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

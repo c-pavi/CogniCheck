@@ -65,8 +65,16 @@ export interface AdminSession {
   recordings: AdminRecording[];
 }
 
-export const adminAudioUrl = (recordingId: string) =>
-  `${API_BASE}/admin/recordings/${recordingId}/audio`;
+/** Thrown by admin calls when the dashboard password is wrong or missing. */
+export class AdminAuthError extends Error {}
+
+async function adminFetch(path: string, token: string): Promise<Response> {
+  const res = await fetch(`${API_BASE}/admin${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) throw new AdminAuthError('Wrong password');
+  return res;
+}
 
 export const api = {
   async checkCode(studyCode: string): Promise<StudyCodeCheckResponse> {
@@ -115,11 +123,18 @@ export const api = {
     return parseJson<{ completed: boolean }>(res);
   },
 
-  async adminOverview(): Promise<AdminOverview> {
-    return parseJson<AdminOverview>(await fetch(`${API_BASE}/admin/overview`));
+  async adminOverview(token: string): Promise<AdminOverview> {
+    return parseJson<AdminOverview>(await adminFetch('/overview', token));
   },
 
-  async adminSessions(): Promise<AdminSession[]> {
-    return parseJson<AdminSession[]>(await fetch(`${API_BASE}/admin/sessions`));
+  async adminSessions(token: string): Promise<AdminSession[]> {
+    return parseJson<AdminSession[]>(await adminFetch('/sessions', token));
+  },
+
+  /** Audio needs the auth header, so fetch it as a blob for an object URL. */
+  async adminAudio(recordingId: string, token: string): Promise<Blob> {
+    const res = await adminFetch(`/recordings/${recordingId}/audio`, token);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.blob();
   },
 };

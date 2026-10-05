@@ -1,14 +1,35 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
-import { adminAudioUrl, api } from '../api';
+import { AdminAuthError, api } from '../api';
 import type { AdminOverview, AdminRecording, AdminSession } from '../api';
-import { SecondaryButton } from '../components/Button';
+import { PrimaryButton, SecondaryButton } from '../components/Button';
 import { Layout } from '../components/Layout';
 import { WORD_LIST, WORD_LIST_ID } from '../config';
 
-// Researcher-only view of everything collected. Reached at /admin; the backend
-// only serves its data when ADMIN_ENABLED=true (see backend/.env.example).
+// Researcher-only view of everything collected. Reached at /admin; every API
+// call carries the dashboard password (ADMIN_TOKEN on the backend).
+
+const TOKEN_KEY = 'cognicheck-admin-token';
+
+// sessionStorage can throw (private mode, blocked storage); the dashboard
+// still works, it just asks for the password again on reload.
+function readToken(): string {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeToken(token: string) {
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 const AGE_ORDER = ['under_55', '55_64', '65_74', '75_84', '85_plus', 'prefer_not_say', 'not_given'];
 const SEX_ORDER = ['female', 'male', 'other', 'prefer_not_say', 'not_given'];
@@ -57,6 +78,81 @@ function scoreRecall(transcript: string): Set<string> {
 }
 
 export function Admin() {
+  const [token, setToken] = useState(readToken);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  if (!token) {
+    return (
+      <PasswordGate
+        error={authError}
+        onSubmit={(t) => {
+          writeToken(t);
+          setAuthError(null);
+          setToken(t);
+        }}
+      />
+    );
+  }
+
+  return (
+    <Dashboard
+      token={token}
+      onAuthFailed={() => {
+        writeToken('');
+        setAuthError('That password was not accepted.');
+        setToken('');
+      }}
+      onSignOut={() => {
+        writeToken('');
+        setToken('');
+      }}
+    />
+  );
+}
+
+function PasswordGate({ error, onSubmit }: { error: string | null; onSubmit: (token: string) => void }) {
+  const [value, setValue] = useState('');
+  return (
+    <Layout eyebrow="Researcher view" title="Dashboard password">
+      <form
+        className="bg-white border border-stone-200 rounded-lg p-6 sm:p-8 space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onSubmit(value.trim());
+        }}
+      >
+        <label className="block text-sm text-stone-700" htmlFor="admin-password">
+          Enter the dashboard password to view collected data.
+        </label>
+        <input
+          id="admin-password"
+          type="password"
+          autoComplete="current-password"
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="border border-stone-300 rounded-md px-3 py-2 w-full focus:outline-none focus:border-emerald-900"
+        />
+        {error && <div className="text-sm text-red-900">{error}</div>}
+        <div className="flex justify-end">
+          <PrimaryButton type="submit" disabled={!value.trim()}>
+            View data
+          </PrimaryButton>
+        </div>
+      </form>
+    </Layout>
+  );
+}
+
+function Dashboard({
+  token,
+  onAuthFailed,
+  onSignOut,
+}: {
+  token: string;
+  onAuthFailed: () => void;
+  onSignOut: () => void;
+}) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [sessions, setSessions] = useState<AdminSession[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -67,14 +163,18 @@ export function Admin() {
     setLoading(true);
     setError(null);
     try {
-      const [o, s] = await Promise.all([api.adminOverview(), api.adminSessions()]);
+      const [o, s] = await Promise.all([api.adminOverview(token), api.adminSessions(token)]);
       setOverview(o);
       setSessions(s);
     } catch (err) {
+      if (err instanceof AdminAuthError) {
+        onAuthFailed();
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       setError(
         msg.startsWith('404')
-          ? 'The dashboard API is turned off. Set ADMIN_ENABLED=true in backend/.env and restart the backend.'
+          ? 'The dashboard is turned off on the server. Set ADMIN_TOKEN on the backend to enable it.'
           : msg,
       );
     } finally {
@@ -153,13 +253,16 @@ export function Admin() {
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               Refresh
             </SecondaryButton>
+            <SecondaryButton onClick={onSignOut} className="!px-3 !py-2 text-sm">
+              Sign out
+            </SecondaryButton>
           </div>
         </div>
       )}
 
       <div className="space-y-4">
         {visible.map((s) => (
-          <SessionCard key={s.id} session={s} />
+          <SessionCard key={s.id} session={s} token={token} />
         ))}
         {overview && visible.length === 0 && (
           <div className="text-sm text-stone-500">No sessions match.</div>
@@ -218,7 +321,7 @@ function BarCard({
   );
 }
 
-function SessionCard({ session: s }: { session: AdminSession }) {
+function SessionCard({ session: s, token }: { session: AdminSession; token: string }) {
   const demographics = [
     label(s.age_band),
     label(s.sex),
@@ -249,7 +352,7 @@ function SessionCard({ session: s }: { session: AdminSession }) {
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
           {s.recordings.map((r) => (
-            <RecordingBlock key={r.id} recording={r} />
+            <RecordingBlock key={r.id} recording={r} token={token} />
           ))}
         </div>
       )}
@@ -257,7 +360,24 @@ function SessionCard({ session: s }: { session: AdminSession }) {
   );
 }
 
-function RecordingBlock({ recording: r }: { recording: AdminRecording }) {
+function RecordingBlock({ recording: r, token }: { recording: AdminRecording; token: string }) {
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [audioState, setAudioState] = useState<'idle' | 'loading' | 'error'>('idle');
+
+  useEffect(() => () => {
+    if (audioSrc) URL.revokeObjectURL(audioSrc);
+  }, [audioSrc]);
+
+  const loadAudio = async () => {
+    setAudioState('loading');
+    try {
+      setAudioSrc(URL.createObjectURL(await api.adminAudio(r.id, token)));
+      setAudioState('idle');
+    } catch {
+      setAudioState('error');
+    }
+  };
+
   const recalled =
     r.test_type === 'word_recall' && r.transcript && r.test_config.word_list_id === WORD_LIST_ID
       ? scoreRecall(r.transcript)
@@ -270,10 +390,23 @@ function RecordingBlock({ recording: r }: { recording: AdminRecording }) {
         <span className="text-stone-500 tabular-nums">{formatDuration(r.duration_sec)}</span>
       </div>
 
-      {r.audio_available ? (
-        <audio controls preload="none" src={adminAudioUrl(r.id)} className="w-full h-10" />
+      {!r.audio_available ? (
+        <div className="text-sm text-stone-500">Audio file missing on the server.</div>
+      ) : audioSrc ? (
+        <audio controls autoPlay src={audioSrc} className="w-full h-10" />
       ) : (
-        <div className="text-sm text-stone-500">Audio file missing on disk.</div>
+        <div className="flex items-center gap-3">
+          <SecondaryButton
+            onClick={loadAudio}
+            disabled={audioState === 'loading'}
+            className="!px-3 !py-2 text-sm"
+          >
+            {audioState === 'loading' ? 'Loading…' : 'Play audio'}
+          </SecondaryButton>
+          {audioState === 'error' && (
+            <span className="text-sm text-red-900">Couldn't load audio.</span>
+          )}
+        </div>
       )}
 
       <div className="mt-3 text-sm">
