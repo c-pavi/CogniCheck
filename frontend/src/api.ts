@@ -131,6 +131,17 @@ export const api = {
     return parseJson<AdminSession[]>(await adminFetch('/sessions', token));
   },
 
+  /** Download an export file; returns the blob and the server's filename. */
+  async adminDownload(
+    path: '/export.csv' | '/export.zip',
+    token: string,
+  ): Promise<{ blob: Blob; filename: string }> {
+    const res = await adminFetch(path, token);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '');
+    return { blob: await res.blob(), filename: match?.[1] ?? path.slice(1) };
+  },
+
   /** Audio needs the auth header, so fetch it as a blob for an object URL. */
   async adminAudio(recordingId: string, token: string): Promise<Blob> {
     const res = await adminFetch(`/recordings/${recordingId}/audio`, token);

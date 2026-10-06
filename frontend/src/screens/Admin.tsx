@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 
 import { AdminAuthError, api } from '../api';
 import type { AdminOverview, AdminRecording, AdminSession } from '../api';
@@ -233,6 +233,8 @@ function Dashboard({
         </>
       )}
 
+      {overview && <RawDataCard token={token} />}
+
       {overview && (
         <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
           <h2 className="text-xl font-semibold text-stone-900">Sessions</h2>
@@ -269,6 +271,58 @@ function Dashboard({
         )}
       </div>
     </Layout>
+  );
+}
+
+function RawDataCard({ token }: { token: string }) {
+  const [busy, setBusy] = useState<'csv' | 'zip' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const download = async (kind: 'csv' | 'zip') => {
+    setBusy(kind);
+    setError(null);
+    try {
+      const { blob, filename } = await api.adminDownload(`/export.${kind}`, token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-5 sm:p-6 mb-12">
+      <h2 className="text-xl font-semibold text-stone-900 mb-1">Raw data</h2>
+      <p className="text-sm text-stone-600 mb-4">
+        One row per recording, with the session's study code and demographics. Opens in Excel or
+        Google Sheets. The ZIP adds a list of all study codes and every audio file.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <PrimaryButton
+          onClick={() => download('csv')}
+          disabled={busy !== null}
+          className="flex items-center gap-2"
+        >
+          <Download size={16} />
+          {busy === 'csv' ? 'Preparing…' : 'Spreadsheet (CSV)'}
+        </PrimaryButton>
+        <SecondaryButton
+          onClick={() => download('zip')}
+          disabled={busy !== null}
+          className="flex items-center gap-2"
+        >
+          <Download size={16} />
+          {busy === 'zip' ? 'Preparing…' : 'Everything + audio (ZIP)'}
+        </SecondaryButton>
+      </div>
+      {error && <div className="text-sm text-red-900 mt-3">Download failed: {error}</div>}
+    </div>
   );
 }
 
